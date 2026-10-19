@@ -1,21 +1,27 @@
 "use client";
 
-import { useState } from "react";
-import { FileText, Star, AlertCircle, CheckCircle, Loader2 } from "lucide-react";
-
-interface ErrorItem {
-  type: string;
-  category: string;
-  content: string;
-  correction: string;
-}
-
-interface GradeResult {
-  score: number;
-  scoreLevel: string;
-  evaluation: string;
-  errorAnalysis: ErrorItem[];
-}
+import { useEffect, useState } from "react";
+import {
+  FileText,
+  Star,
+  AlertCircle,
+  CheckCircle,
+  Loader2,
+  History,
+  Trash2,
+  ChevronDown,
+  ChevronUp,
+  Download,
+} from "lucide-react";
+import {
+  loadHistory,
+  saveRecord,
+  deleteRecord,
+  clearHistory,
+  exportHistory,
+  type GradeResult,
+  type GradeRecord,
+} from "../lib/history";
 
 const levelColors: Record<string, string> = {
   优秀: "bg-green-100 text-green-800 border-green-300",
@@ -31,12 +37,86 @@ const errorTypeColors: Record<string, string> = {
   标点错误: "bg-cyan-50 border-cyan-200",
 };
 
+// 评分详情展示（当前结果与历史记录共用）
+function ResultView({ result }: { result: GradeResult }) {
+  return (
+    <div className="space-y-5">
+      {/* 分数与等级 */}
+      <div className="text-center py-4 bg-slate-50 rounded-xl">
+        <div className="text-5xl font-bold text-slate-900">
+          {result.score}
+          <span className="text-2xl text-slate-400 font-normal"> 分</span>
+        </div>
+        <span
+          className={`inline-block mt-2 px-3 py-1 rounded-full text-sm font-medium border ${
+            levelColors[result.scoreLevel] ||
+            "bg-slate-100 text-slate-800 border-slate-300"
+          }`}
+        >
+          {result.scoreLevel}
+        </span>
+      </div>
+
+      {/* 整体评价 */}
+      <div>
+        <h3 className="text-sm font-semibold text-slate-700 mb-2">整体评价</h3>
+        <p className="text-sm text-slate-600 leading-relaxed bg-slate-50 p-3 rounded-lg">
+          {result.evaluation}
+        </p>
+      </div>
+
+      {/* 错误分析 */}
+      {result.errorAnalysis && result.errorAnalysis.length > 0 && (
+        <div>
+          <h3 className="text-sm font-semibold text-slate-700 mb-2">
+            错误分析（{result.errorAnalysis.length}）
+          </h3>
+          <div className="space-y-2">
+            {result.errorAnalysis.map((err, i) => (
+              <div
+                key={i}
+                className={`rounded-lg border p-3 ${
+                  errorTypeColors[err.type] || "bg-slate-50 border-slate-200"
+                }`}
+              >
+                <div className="flex items-center gap-2 mb-1.5">
+                  <span className="text-xs font-medium px-2 py-0.5 rounded bg-white/70 text-slate-600">
+                    {err.type}
+                  </span>
+                  <span className="text-xs text-slate-500">{err.category}</span>
+                </div>
+                <div className="text-sm space-y-1">
+                  <div className="flex gap-1.5">
+                    <CheckCircle className="w-3.5 h-3.5 text-red-400 shrink-0 mt-0.5" />
+                    <span className="text-slate-700">{err.content}</span>
+                  </div>
+                  <div className="flex gap-1.5">
+                    <CheckCircle className="w-3.5 h-3.5 text-green-500 shrink-0 mt-0.5" />
+                    <span className="text-green-700">{err.correction}</span>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function Home() {
   const [essayTitle, setEssayTitle] = useState("");
   const [essayContent, setEssayContent] = useState("");
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<GradeResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [history, setHistory] = useState<GradeRecord[]>([]);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+
+  // 页面加载时读取本地练习记录
+  useEffect(() => {
+    setHistory(loadHistory());
+  }, []);
 
   const handleGrade = async () => {
     if (!essayContent.trim()) {
@@ -58,6 +138,17 @@ export default function Home() {
         setError(data.error || "评分失败，请重试");
       } else {
         setResult(data);
+        // 评分成功，自动保存练习记录到本机
+        setHistory(
+          saveRecord({
+            title: essayTitle,
+            content: essayContent,
+            score: data.score,
+            scoreLevel: data.scoreLevel,
+            evaluation: data.evaluation,
+            errorAnalysis: data.errorAnalysis,
+          })
+        );
       }
     } catch (e) {
       setError("网络错误，请重试");
@@ -65,6 +156,35 @@ export default function Home() {
       setLoading(false);
     }
   };
+
+  const handleDelete = (id: string) => {
+    if (!window.confirm("确定删除这条记录吗？")) return;
+    setHistory(deleteRecord(id));
+    if (expandedId === id) setExpandedId(null);
+  };
+
+  const handleClear = () => {
+    if (
+      !window.confirm(
+        `确定清空全部 ${history.length} 条练习记录吗？此操作不可恢复，建议先导出备份。`
+      )
+    )
+      return;
+    clearHistory();
+    setHistory([]);
+    setExpandedId(null);
+  };
+
+  const handleExport = () => {
+    if (history.length === 0) {
+      window.alert("暂无记录可导出");
+      return;
+    }
+    exportHistory();
+  };
+
+  const fmtTime = (ts: number) =>
+    new Date(ts).toLocaleString("zh-CN", { hour12: false });
 
   return (
     <main className="min-h-screen bg-gradient-to-b from-slate-50 to-white">
@@ -168,83 +288,130 @@ export default function Home() {
               </div>
             )}
 
-            {result && (
-              <div className="space-y-5">
-                {/* 分数与等级 */}
-                <div className="text-center py-4 bg-slate-50 rounded-xl">
-                  <div className="text-5xl font-bold text-slate-900">
-                    {result.score}
-                    <span className="text-2xl text-slate-400 font-normal">
-                      {" "}
-                      分
-                    </span>
-                  </div>
-                  <span
-                    className={`inline-block mt-2 px-3 py-1 rounded-full text-sm font-medium border ${
-                      levelColors[result.scoreLevel] ||
-                      "bg-slate-100 text-slate-800 border-slate-300"
-                    }`}
-                  >
-                    {result.scoreLevel}
-                  </span>
-                </div>
-
-                {/* 整体评价 */}
-                <div>
-                  <h3 className="text-sm font-semibold text-slate-700 mb-2">
-                    整体评价
-                  </h3>
-                  <p className="text-sm text-slate-600 leading-relaxed bg-slate-50 p-3 rounded-lg">
-                    {result.evaluation}
-                  </p>
-                </div>
-
-                {/* 错误分析 */}
-                {result.errorAnalysis && result.errorAnalysis.length > 0 && (
-                  <div>
-                    <h3 className="text-sm font-semibold text-slate-700 mb-2">
-                      错误分析（{result.errorAnalysis.length}）
-                    </h3>
-                    <div className="space-y-2">
-                      {result.errorAnalysis.map((err, i) => (
-                        <div
-                          key={i}
-                          className={`rounded-lg border p-3 ${
-                            errorTypeColors[err.type] ||
-                            "bg-slate-50 border-slate-200"
-                          }`}
-                        >
-                          <div className="flex items-center gap-2 mb-1.5">
-                            <span className="text-xs font-medium px-2 py-0.5 rounded bg-white/70 text-slate-600">
-                              {err.type}
-                            </span>
-                            <span className="text-xs text-slate-500">
-                              {err.category}
-                            </span>
-                          </div>
-                          <div className="text-sm space-y-1">
-                            <div className="flex gap-1.5">
-                              <CheckCircle className="w-3.5 h-3.5 text-red-400 shrink-0 mt-0.5" />
-                              <span className="text-slate-700">
-                                {err.content}
-                              </span>
-                            </div>
-                            <div className="flex gap-1.5">
-                              <CheckCircle className="w-3.5 h-3.5 text-green-500 shrink-0 mt-0.5" />
-                              <span className="text-green-700">
-                                {err.correction}
-                              </span>
-                            </div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
+            {result && <ResultView result={result} />}
           </section>
         </div>
+
+        {/* 练习记录 */}
+        <section className="mt-8 bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
+          <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+            <div className="flex items-center gap-2">
+              <History className="w-5 h-5 text-indigo-600" />
+              <h2 className="text-lg font-semibold text-slate-800">
+                练习记录
+                {history.length > 0 && (
+                  <span className="ml-2 text-sm font-normal text-slate-400">
+                    {history.length} 条
+                  </span>
+                )}
+              </h2>
+            </div>
+            {history.length > 0 && (
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleExport}
+                  className="flex items-center gap-1.5 text-sm text-indigo-600 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100 px-3 py-1.5 rounded-lg transition-colors"
+                >
+                  <Download className="w-4 h-4" />
+                  导出备份
+                </button>
+                <button
+                  onClick={handleClear}
+                  className="flex items-center gap-1.5 text-sm text-red-600 hover:text-red-800 bg-red-50 hover:bg-red-100 px-3 py-1.5 rounded-lg transition-colors"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  清空全部
+                </button>
+              </div>
+            )}
+          </div>
+
+          {history.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-10 text-slate-400">
+              <History className="w-10 h-10 mb-2" />
+              <p className="text-sm">暂无练习记录，评分后将自动保存到这里</p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {history.map((r) => {
+                const expanded = expandedId === r.id;
+                return (
+                  <div
+                    key={r.id}
+                    className="border border-slate-200 rounded-xl overflow-hidden"
+                  >
+                    <button
+                      onClick={() => setExpandedId(expanded ? null : r.id)}
+                      className="w-full flex items-center justify-between gap-3 px-4 py-3 hover:bg-slate-50 transition-colors text-left"
+                    >
+                      <div className="flex items-center gap-3 min-w-0 flex-1">
+                        <span
+                          className={`shrink-0 text-xs font-semibold px-2 py-1 rounded-md border ${
+                            levelColors[r.scoreLevel] ||
+                            "bg-slate-100 text-slate-800 border-slate-300"
+                          }`}
+                        >
+                          {r.score} 分 · {r.scoreLevel}
+                        </span>
+                        <span className="text-sm text-slate-700 truncate">
+                          {r.title || "无题目"}
+                        </span>
+                        <span className="hidden sm:inline text-xs text-slate-400 shrink-0">
+                          {fmtTime(r.createdAt)}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <span className="text-xs text-slate-400">
+                          {r.errorAnalysis?.length || 0} 处错误
+                        </span>
+                        {expanded ? (
+                          <ChevronUp className="w-4 h-4 text-slate-400" />
+                        ) : (
+                          <ChevronDown className="w-4 h-4 text-slate-400" />
+                        )}
+                      </div>
+                    </button>
+
+                    {expanded && (
+                      <div className="border-t border-slate-100 bg-slate-50/60 px-4 py-4 space-y-4">
+                        <div>
+                          <div className="flex items-center justify-between mb-1.5">
+                            <h4 className="text-xs font-semibold text-slate-500">
+                              作文原文（{r.title || "无题目"}）
+                            </h4>
+                            <span className="text-xs text-slate-400">
+                              {fmtTime(r.createdAt)}
+                            </span>
+                          </div>
+                          <div className="text-sm text-slate-700 leading-relaxed bg-white border border-slate-200 rounded-lg p-3 max-h-48 overflow-y-auto whitespace-pre-wrap">
+                            {r.content}
+                          </div>
+                        </div>
+                        <ResultView result={r} />
+                        <div className="text-right">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDelete(r.id);
+                            }}
+                            className="text-xs text-red-500 hover:text-red-700 flex items-center gap-1 ml-auto"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                            删除此记录
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          <p className="text-xs text-slate-400 mt-4 leading-relaxed">
+            记录仅保存在本机浏览器中（最多 100 条，超出自动删除最旧记录），不会上传服务器；清除浏览器数据会导致记录丢失，重要记录请使用"导出备份"。
+          </p>
+        </section>
 
         {/* 评分标准说明 */}
         <div className="mt-8 bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
